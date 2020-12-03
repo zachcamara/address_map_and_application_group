@@ -7,18 +7,33 @@
 # If there is no user defined application groups this script will fail, must create at least one placeholder application group for now.
 #
 #
+
+# Standard library imports
+import base64
+import codecs
+import datetime
+import getpass
+import ipaddress
+import json
+from os import system, name
+import pathlib
 import sys
 import time
-import json
-import getpass
-import base64
-import pathlib
-import codecs
-import ipaddress
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
+
+# Third party imports
 import colored
-from os import system, name
-from orchhelp import OrchHelper
 from colored import stylize
+#from dotenv import load_dotenv
+
+# Local application imports
+from sp_orchhelper import OrchHelper
+
+
+# Disable Certificate Warnings
+urllib3.disable_warnings(category=InsecureRequestWarning)
+
 #
 # Clear Screen
 #
@@ -104,8 +119,7 @@ for i in range(len(lines)):
 #
 # Login to Orchestrator
 #
-orch = OrchHelper(orch_url)
-orch.password = password
+orch = OrchHelper(orch_url, user, password)
 orch.login()
 #
 ##########################################################################################################
@@ -131,43 +145,62 @@ for i in range(len(list)):
     ip_start = int(hostmin)
     ip_end = int(hostmax)
     #
-    data_app_def = {"ip_start": ip_start, "ip_end": ip_end, "name": app_group_name+ "_" + str(app_def_net) , "description": "", "priority": 100, "country": "", "country_code": "", "org": ""}
+    request_app_defs = orch.post_userDefined_app_addressMap(ip_start, ip_end, name=app_group_name + "_" + str(app_def_net), description="", priority=100)
     #
-    request_app_defs = orch.post("/applicationDefinition/ipIntelligenceClassification/" + str(ip_start) + "/" + str(ip_end), data_app_def)
-    #
-    result = (request_app_defs.status_code)
-    if result == (200):
-        print (stylize("Address Map: ",blue_text) + app_group_name + "_" + str(app_def_net) + stylize(" added successfully!",green_text))
+    if request_app_defs.status_code == (200):
         app_def_names.append(app_group_name + "_" + str(app_def_net))
-    #
-    # Else print sad message...
     #
     else:
         print (stylize("Something went wrong...",red_text))
-        print ("Error Returned :" + result)
+        print ("Error Returned :" + request_app_defs)
         print (app_group_name+ "_" + str(app_def_net))
+
 #
 ##########################################################################################################
 #
 # Get current Application Groups config...
 #
-request_app_group = orch.get("/applicationDefinition/applicationTags?resourceKey=userDefined").json()
+request_app_group = orch.get_userDefined_appGroups().json()
 #
 # Parse output as JSON
 #
 json_object = json.dumps(request_app_group)
 json_data = json.loads(json_object)
 #
-# Write current Application Groups/Membership config to file...
+# If no User Defined Application Groups exist, create one with the provided name
 #
-output_filename = 'current_app_groups.json'
-#
-with open(output_filename, 'w') as data_file:
+output_filename = 'new_app_groups.json'
+
+if request_app_group.get("result") == "Not found" or request_app_group == {}:
+    print("No existing User Defined Application Groups, creating new...")
+
+    # Log the local data
+    output_filename = 'new_app_groups.json'
+
+    with open(output_filename, 'w') as new_json_file:
+        p1 = '{ "'
+        p2 = app_group_name
+        p3 = '" : { "apps": ['
+        p4 = ', '.join(['"{}"'.format(value) for value in app_def_names])
+        p5 = '], "parentGroup": null }}'
+        new_app_group = p1 + p2 + p3 + p4 + p5
+        new_json_file.writelines(new_app_group)
+
+    with open(output_filename, 'r') as data_file:
+        data = json.load(data_file)
+
+    post_app_groups = orch.update_userDefined_appGroups(data)
+
+    exit()  
+else:
+    output_filename = 'current_app_groups.json'
+    with open(output_filename, 'w') as data_file:
         write = data_file.write(json_object)
+
 #
 ##########################################################################################################
 #
-input_filename = 'current_app_groups.json'
+input_filename = output_filename
 output_filename = 'new_app_groups.json'
 #
 # Open/Read file with current Application Groups/Membership
@@ -198,30 +231,30 @@ print()
 #
 ##########################################################################################################
 #
-input_filename = 'new_app_groups.json'
+input_filename = output_filename
 #
 # Read file with new App Groups and Post to Orchestrator....
 #
 with open(input_filename, 'r') as data_file:
         data = json.load(data_file)
         # Blank post to prevent duplications - ?
-        post_blank_groups = orch.empty_post("/applicationDefinition/applicationTags")
+        blank = {}
+        post_app_groups = orch.update_userDefined_appGroups(blank)
         # Post new App Groups Data
-        post_app_groups = orch.post("/applicationDefinition/applicationTags", data)
+        post_app_groups = orch.update_userDefined_appGroups(data)
 #
-result = (post_app_groups.status_code)
 print ()
 #
 # If 200 OK print happy message...
 #
-if result == (200):
+if post_app_groups.status_code == (200):
     print (stylize("New Application Group: ",blue_text) + app_group_name + stylize(" added successfully!",green_text))
 #
 # Else print sad message...
 #
 else:
     print (stylize("Something went wrong...",red_text))
-    print ("Error Returned :" + result)
+    print ("Error Returned :" + post_app_groups)
 print()
 #
 ##########################################################################################################

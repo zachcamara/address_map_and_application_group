@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Folder metadata
+.DS_Store
+
+# dotenv
+*.env
+
+# Virtual Environment
+.venv/
+
+# Local files and orch creds
+.json
+.orch_*
+
